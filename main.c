@@ -2,6 +2,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <stdlib.h>
+#include "fat32_lib.c"
 
 char *const SHELL_MODE = "shell";
 char *const MOUNTS_LIST_MODE = "mounts";
@@ -22,7 +23,8 @@ int startsWith(const char *str, const char *pre) {
 }
 
 int main(int argc, char **argv) {
-    run_mounts_mode();
+    test_read_sda1();
+//    run_mounts_mode();
 //    if (argc < 2) {
 //        printf("Please, specify program mode (shell/mounts)\n");
 //        return 0;
