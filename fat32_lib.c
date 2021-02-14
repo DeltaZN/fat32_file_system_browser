@@ -22,19 +22,19 @@ typedef struct fat_BS {
     unsigned int hidden_sector_count;
     unsigned int total_sectors_32;
 
-    unsigned int		table_size_32;
-    unsigned short		extended_flags;
-    unsigned short		fat_version;
-    unsigned int		root_cluster;
-    unsigned short		fat_info;
-    unsigned short		backup_BS_sector;
-    unsigned char 		reserved_0[12];
-    unsigned char		drive_number;
-    unsigned char 		reserved_1;
-    unsigned char		boot_signature;
-    unsigned int 		volume_id;
-    unsigned char		volume_label[11];
-    unsigned char		fat_type_label[8];
+    unsigned int table_size_32;
+    unsigned short extended_flags;
+    unsigned short fat_version;
+    unsigned int root_cluster;
+    unsigned short fat_info;
+    unsigned short backup_BS_sector;
+    unsigned char reserved_0[12];
+    unsigned char drive_number;
+    unsigned char reserved_1;
+    unsigned char boot_signature;
+    unsigned int volume_id;
+    unsigned char volume_label[11];
+    unsigned char fat_type_label[8];
 
 }__attribute__((packed)) fat_BS_t;
 
@@ -75,37 +75,76 @@ typedef struct long_fname {
     unsigned char _2_byte_chars_last[4];
 }__attribute__((packed)) long_fname_t;
 
-unsigned int get_fat_table_value(unsigned int active_cluster, unsigned int first_fat_sector, unsigned int sector_size, int fd) {
+typedef struct dir_value {
+    unsigned char *filename;
+    unsigned char type;
+    unsigned int first_cluster;
+    unsigned int size;
+    void *next;
+}__attribute__((packed)) dir_value_t;
+
+typedef struct partition_value {
+    int device_fd;
+    unsigned int cluster_size;
+    unsigned int first_data_sector;
+    unsigned int active_cluster;
+    fat_BS_t *fat_boot;
+    fs_info_t *fs_info;
+}__attribute__((packed)) partition_value_t;
+
+unsigned int
+get_fat_table_value(unsigned int active_cluster, unsigned int first_fat_sector, unsigned int sector_size, int fd) {
     unsigned char *FAT_table = malloc(sector_size);
     unsigned int fat_offset = active_cluster * 4;
     unsigned int fat_sector = first_fat_sector + (fat_offset / sector_size);
     unsigned int ent_offset = fat_offset % sector_size;
     pread(fd, FAT_table, sector_size, fat_sector * sector_size);
-    unsigned int table_value = *(unsigned int*)&FAT_table[ent_offset] & 0x0FFFFFFF;
+    unsigned int table_value = *(unsigned int *) &FAT_table[ent_offset] & 0x0FFFFFFF;
     free(FAT_table);
     return table_value;
 }
 
-typedef struct dir_value {
-    unsigned char *filename;
-    unsigned char type;
-    unsigned int size;
-    void *next;
-}__attribute__((packed)) dir_value_t;
-
-void read_dir(unsigned int first_sector, unsigned int cluster_size, int sector_size, int fd) {
-    dir_entry_t *buf = malloc(cluster_size);
+dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
+    unsigned int cluster_size = value->cluster_size;
+    unsigned int sector_size = value->fat_boot->bytes_per_sector;
+    unsigned int current_cluster = first_cluster;
+    int fd = value->device_fd;
+    unsigned int first_sector =
+            ((current_cluster - 2) * value->fat_boot->sectors_per_cluster) + value->first_data_sector;
+    dir_entry_t *buf = calloc(1, cluster_size);
     pread(fd, buf, cluster_size, first_sector * sector_size);
-    dir_value_t *first_dir_value;
-    dir_value_t *current_dir_value;
+    dir_value_t *first_dir_value = NULL;
+    dir_value_t *prev_dir_value = NULL;
+    dir_value_t *current_dir_value = NULL;
 
-    char *order_bitmap = malloc(32);
+    char *order_bitmap = calloc(1, 32);
     char *order[32];
     unsigned int long_name_counter = 0;
     char end_dir_reached = 0;
     int j = 0;
     while (!end_dir_reached) {
         dir_entry_t *entry = &buf[j++];
+        if ((cluster_size / sizeof(dir_entry_t)) <= (j)) {
+            // cluster limit reached
+            unsigned int fat_record = get_fat_table_value(current_cluster, value->fat_boot->reserved_sector_count,
+                                                          sector_size, value->device_fd);
+            if (fat_record >= 0x0FFFFFF8) {
+                // chain end reached
+                end_dir_reached = 1;
+            } else if (fat_record == 0x0FFFFFF7) {
+                // bad cluster...
+                end_dir_reached = 1;
+            } else {
+                current_cluster = fat_record;
+                free(buf);
+                unsigned int current_sector =
+                        ((current_cluster - 2) * value->fat_boot->sectors_per_cluster) + value->first_data_sector;
+                buf = calloc(1, cluster_size);
+                j = 0;
+                pread(fd, buf, cluster_size, current_sector * sector_size);
+                continue;
+            }
+        }
         if (entry->file_name[0] == 0) {
             // dir end
             end_dir_reached = 1;
@@ -116,7 +155,7 @@ void read_dir(unsigned int first_sector, unsigned int cluster_size, int sector_s
             long_fname_t *fname = (long_fname_t *) entry;
             // maximum order value == 0x1F
             int current_order = fname->order & 0x001F;
-            order[current_order] = malloc(13);
+            order[current_order] = calloc(1, 13);
             order_bitmap[current_order] = 1;
             char *current_buf = order[current_order];
             int buf_offset = 0;
@@ -130,7 +169,7 @@ void read_dir(unsigned int first_sector, unsigned int cluster_size, int sector_s
                 current_buf[buf_offset++] = fname->_2_byte_chars_last[i];
             }
             long_name_counter++;
-        } else if (entry->attributes == 0x10 || entry->attributes == 0x20 || entry->attributes == 0x16) {
+        } else if ((entry->attributes & 0x10) == 0x10 || (entry->attributes & 0x20) == 0x20) {
             if (!long_name_counter) {
                 char tmp_name[9];
                 char tmp_ext[4];
@@ -143,13 +182,42 @@ void read_dir(unsigned int first_sector, unsigned int cluster_size, int sector_s
                         break;
                     }
                 }
-                if (entry->attributes == 0x20) {
-                    printf("%s.%s %d b\n", tmp_name, tmp_ext, entry->file_size);
+                if ((entry->attributes & 0x20) == 0x20) {
+                    current_dir_value = malloc(sizeof(dir_value_t));
+                    current_dir_value->filename = calloc(1, 11);
+                    strcpy(current_dir_value->filename, tmp_name);
+                    strcat(current_dir_value->filename, ".");
+                    strcat(current_dir_value->filename, tmp_ext);
+                    current_dir_value->size = entry->file_size;
+                    current_dir_value->type = 'f';
+                    if (first_dir_value == NULL) {
+                        first_dir_value = current_dir_value;
+                    }
+                    if (prev_dir_value != NULL) {
+                        prev_dir_value->next = current_dir_value;
+                    }
+                    prev_dir_value = current_dir_value;
                 } else {
-                    printf("%s\n", tmp_name);
+                    current_dir_value = malloc(sizeof(dir_value_t));
+                    current_dir_value->filename = calloc(1, 11);
+                    strncpy(current_dir_value->filename, tmp_name, 11);
+                    current_dir_value->type = 'd';
+                    current_dir_value->first_cluster = entry->high_cluster_num << 4;
+                    current_dir_value->first_cluster =
+                            current_dir_value->first_cluster + (entry->low_cluster_num & 0xFFFF);
+                    if (current_dir_value->first_cluster == 0) {
+                        current_dir_value->first_cluster = 2;
+                    }
+                    if (first_dir_value == NULL) {
+                        first_dir_value = current_dir_value;
+                    }
+                    if (prev_dir_value != NULL) {
+                        prev_dir_value->next = current_dir_value;
+                    }
+                    prev_dir_value = current_dir_value;
                 }
             } else {
-                char *tmp_str = malloc(512);
+                unsigned char *tmp_str = calloc(1, long_name_counter * 13);
                 for (int i = 0; i < 32; ++i) {
                     if (order_bitmap[i] == 1) {
                         strcat(tmp_str, order[i]);
@@ -158,68 +226,119 @@ void read_dir(unsigned int first_sector, unsigned int cluster_size, int sector_s
                     }
                 }
                 long_name_counter = 0;
-                if (entry->attributes == 20) {
-                    printf("%s %d b\n", tmp_str, entry->file_size);
+                if ((entry->attributes & 0x20) == 0x20) {
+                    current_dir_value = malloc(sizeof(dir_value_t));
+                    current_dir_value->filename = tmp_str;
+                    current_dir_value->size = entry->file_size;
+                    current_dir_value->type = 'f';
+                    if (first_dir_value == NULL) {
+                        first_dir_value = current_dir_value;
+                    }
+                    if (prev_dir_value != NULL) {
+                        prev_dir_value->next = current_dir_value;
+                    }
+                    prev_dir_value = current_dir_value;
                 } else {
-                    printf("%s\n", tmp_str);
+                    current_dir_value = malloc(sizeof(dir_value_t));
+                    current_dir_value->filename = tmp_str;
+                    current_dir_value->first_cluster = entry->high_cluster_num << 4;
+                    current_dir_value->first_cluster =
+                            current_dir_value->first_cluster + (entry->low_cluster_num & 0xFFFF);
+                    current_dir_value->type = 'd';
+                    if (first_dir_value == NULL) {
+                        first_dir_value = current_dir_value;
+                    }
+                    if (prev_dir_value != NULL) {
+                        prev_dir_value->next = current_dir_value;
+                    }
+                    prev_dir_value = current_dir_value;
                 }
-                free(tmp_str);
             }
         }
     }
+    printf("%d\n", j);
 
     free(order_bitmap);
     free(buf);
+    return first_dir_value;
+}
+
+void change_dir(partition_value_t *value, const unsigned char *dir) {
+    dir_value_t *pValue = read_dir(value->active_cluster, value);
+    while (pValue != NULL) {
+        if (pValue->type == 'd' && strcmp(dir, pValue->filename) == 0) {
+            printf("%s\n", dir);
+            value->active_cluster = pValue->first_cluster;
+            return;
+        }
+        pValue = pValue->next;
+    }
+    printf("Directory doesn't exist\n");
+}
+
+void print_dir(dir_value_t *pValue) {
+    while (pValue != NULL) {
+        if (pValue->type == 'd') {
+            printf("DIR %s %d\n", pValue->filename, pValue->first_cluster);
+        } else {
+            printf("FILE %s (%d bytes)\n", pValue->filename, pValue->size);
+        }
+        pValue = pValue->next;
+    }
+}
+
+void open_dir(const char *path) {
+
 }
 
 
-void test_read_sda1() {
-    FILE *f = fopen("/dev/sdc1", "rb");
-    int fd = open("/dev/sdc1", O_RDONLY, 00666);
-    struct stat fstat;
-    stat("/dev/sdc1", &fstat);
-    int blksize = (int) fstat.st_blksize;
+partition_value_t *open_partition(const char *partition) {
+    char dev[256] = "/dev/";
+    strcat(dev, partition);
+    int fd = open(dev, O_RDONLY, 00666);
     fat_BS_t *fat_boot;
-    long length;
-
-    if (f) {
-        fseek(f, 0, SEEK_END);
-        length = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        // to be sure we have zero byte at the end
+    if (fd != -1) {
         fat_boot = malloc(sizeof(fat_BS_t));
         pread(fd, fat_boot, sizeof(fat_BS_t), 0);
         unsigned int total_sectors = fat_boot->total_sectors_32;
         unsigned int fat_size = (fat_boot->table_size_16 == 0) ? fat_boot->table_size_32 : fat_boot->table_size_16;
         unsigned int root_dir_sectors =
                 ((fat_boot->root_entry_count * 32) + (fat_boot->bytes_per_sector - 1)) / fat_boot->bytes_per_sector;
-        unsigned int first_data_sector = fat_boot->reserved_sector_count + (fat_boot->table_count * fat_size) + root_dir_sectors;
-        unsigned int first_fat_sector = fat_boot->reserved_sector_count;
+        unsigned int first_data_sector =
+                fat_boot->reserved_sector_count + (fat_boot->table_count * fat_size) + root_dir_sectors;
         unsigned int data_sectors = total_sectors -
-                           (fat_boot->reserved_sector_count + (fat_boot->table_count * fat_size) + root_dir_sectors);
+                                    (fat_boot->reserved_sector_count + (fat_boot->table_count * fat_size) +
+                                     root_dir_sectors);
         unsigned int total_clusters = data_sectors / fat_boot->sectors_per_cluster;
-        if (total_clusters < 4085) {
-            printf("FAT12");
-        } else if (total_clusters < 65525) {
-            printf("FAT16");
-        } else if (total_clusters < 268435445) {
-            printf("FAT32\n");
+
+        if (total_clusters >= 65525 && total_clusters < 268435445) {
+            printf("Filesystem: FAT32\n");
         } else {
-            printf("ExFAT");
+            printf("Error: FAT32 not supported!\n");
+            return NULL;
         }
-        unsigned int root_cluster_32 = fat_boot->root_cluster;
-        unsigned int first_sector_of_root_cluster = ((root_cluster_32 - 2) * fat_boot->sectors_per_cluster) + first_data_sector;
+
         unsigned int cluster_size = fat_boot->bytes_per_sector * fat_boot->sectors_per_cluster;
-//        dir_entry_t *buf = malloc(cluster_size);
-//        pread(fd, buf, cluster_size, first_sector_of_root_cluster * fat_boot->bytes_per_sector);
+
         fs_info_t *fs = malloc(sizeof(fs_info_t));
         pread(fd, fs, sizeof(fs_info_t), fat_boot->fat_info * fat_boot->bytes_per_sector);
-//        unsigned int i = get_fat_table_value(root_cluster_32, first_fat_sector, fat_boot->bytes_per_sector, fd);
 
-        read_dir(first_sector_of_root_cluster, cluster_size, fat_boot->bytes_per_sector, fd);
-        free(fs);
-        free(fat_boot);
+        partition_value_t *part = malloc(sizeof(partition_value_t));
+        part->cluster_size = cluster_size;
+        part->device_fd = fd;
+        part->fat_boot = fat_boot;
+        part->fs_info = fs;
+        part->first_data_sector = first_data_sector;
+        part->active_cluster = fat_boot->root_cluster;
 
-        fclose(f);
+        return part;
     }
+    return NULL;
+}
+
+void close_partition(partition_value_t *part) {
+    free(part->fat_boot);
+    free(part->fs_info);
+    close(part->device_fd);
+    free(part);
 }

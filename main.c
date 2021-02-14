@@ -22,8 +22,76 @@ int startsWith(const char *str, const char *pre) {
     return lenstr < lenpre ? 0 : memcmp(pre, str, lenpre) == 0;
 }
 
+char * get_line(void) {
+    char * line = malloc(100), * linep = line;
+    size_t lenmax = 100, len = lenmax;
+    int c;
+
+    if(line == NULL)
+        return NULL;
+
+    for(;;) {
+        c = fgetc(stdin);
+        if(c == EOF)
+            break;
+
+        if(--len == 0) {
+            len = lenmax;
+            char * linen = realloc(linep, lenmax *= 2);
+
+            if(linen == NULL) {
+                free(linep);
+                return NULL;
+            }
+            line = linen + (line - linep);
+            linep = linen;
+        }
+
+        if((*line++ = c) == '\n')
+            break;
+    }
+    *line = '\0';
+    return linep;
+}
+
+void run_second_mode() {
+    partition_value_t *pValue = open_partition("sdc1");
+    while (1) {
+        char *line = get_line();
+        if (startsWith(line, "ls")) {
+            dir_value_t *pDirValue = read_dir(pValue->active_cluster, pValue);
+            print_dir(pDirValue);
+        } else if (startsWith(line, "cd")) {
+            char *arg = calloc(1, 256);
+            const char delim[] = " ";
+            char *ptr = strtok(line, delim);
+            ptr = strtok(NULL, delim);
+
+            while(ptr != NULL)
+            {
+                strcat(arg, ptr);
+                ptr = strtok(NULL, delim);
+                strcat(arg, " ");
+            }
+            for (int i = 0;; i++) {
+                if (arg[i] == '\n') {
+                    arg[i] = 0;
+                }
+                if (arg[i] == 0) {
+                    break;
+                }
+            }
+            change_dir(pValue, arg);
+        } else if (startsWith(line, "exit")) {
+            break;
+        }
+    }
+    close_partition(pValue);
+}
+
 int main(int argc, char **argv) {
-    test_read_sda1();
+    run_second_mode();
+
 //    run_mounts_mode();
 //    if (argc < 2) {
 //        printf("Please, specify program mode (shell/mounts)\n");
