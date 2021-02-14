@@ -22,24 +22,24 @@ int startsWith(const char *str, const char *pre) {
     return lenstr < lenpre ? 0 : memcmp(pre, str, lenpre) == 0;
 }
 
-char * get_line(void) {
-    char * line = malloc(100), * linep = line;
+char *get_line(void) {
+    char *line = malloc(100), *linep = line;
     size_t lenmax = 100, len = lenmax;
     int c;
 
-    if(line == NULL)
+    if (line == NULL)
         return NULL;
 
-    for(;;) {
+    for (;;) {
         c = fgetc(stdin);
-        if(c == EOF)
+        if (c == EOF)
             break;
 
-        if(--len == 0) {
+        if (--len == 0) {
             len = lenmax;
-            char * linen = realloc(linep, lenmax *= 2);
+            char *linen = realloc(linep, lenmax *= 2);
 
-            if(linen == NULL) {
+            if (linen == NULL) {
                 free(linep);
                 return NULL;
             }
@@ -47,50 +47,121 @@ char * get_line(void) {
             linep = linen;
         }
 
-        if((*line++ = c) == '\n')
+        if ((*line++ = c) == '\n')
             break;
     }
     *line = '\0';
     return linep;
 }
 
-void run_second_mode() {
-    partition_value_t *pValue = open_partition("sdc1");
-    while (1) {
-        char *line = get_line();
-        if (startsWith(line, "ls")) {
-            dir_value_t *pDirValue = read_dir(pValue->active_cluster, pValue);
-            print_dir(pDirValue);
-        } else if (startsWith(line, "cd")) {
-            char *arg = calloc(1, 256);
-            const char delim[] = " ";
-            char *ptr = strtok(line, delim);
-            ptr = strtok(NULL, delim);
+void remove_ending_symbol(char *str, char sym) {
+    for (int i = 0;; i++) {
+        if (str[i] == sym)
+            str[i] = 0;
+        if (str[i] == 0)
+            break;
+    }
+}
 
-            while(ptr != NULL)
-            {
-                strcat(arg, ptr);
-                ptr = strtok(NULL, delim);
-                strcat(arg, " ");
-            }
-            for (int i = 0;; i++) {
-                if (arg[i] == '\n') {
-                    arg[i] = 0;
-                }
-                if (arg[i] == 0) {
-                    break;
-                }
-            }
-            change_dir(pValue, arg);
-        } else if (startsWith(line, "exit")) {
+void remove_until(char *str, char sym) {
+    int len = strlen(str);
+    for (int i = len; i >= 0; i--) {
+        if (str[i] != sym)
+            str[i] = 0;
+        else {
+            str[i] = 0;
             break;
         }
     }
-    close_partition(pValue);
+}
+
+void print_dir(dir_value_t *pValue) {
+    while (pValue != NULL) {
+        if (pValue->type == 'd') {
+            printf("DIR %s %d\n", pValue->filename, pValue->first_cluster);
+        } else {
+            printf("FILE %s (%d bytes)\n", pValue->filename, pValue->size);
+        }
+        pValue = pValue->next;
+    }
+}
+
+char *get_arg(char *ptr) {
+    const char delim[] = " ";
+    char *arg = calloc(1, 256);
+    ptr = strtok(NULL, delim);
+
+    while (ptr != NULL) {
+        strcat(arg, ptr);
+        ptr = strtok(NULL, delim);
+        strcat(arg, " ");
+    }
+    remove_ending_symbol(arg, '\n');
+    return arg;
+}
+
+void run_second_mode(const char *part) {
+    partition_value_t *pValue = open_partition(part);
+    if (pValue) {
+        printf("FAT32 supported.\n");
+        char *current_dir = calloc(1, 512);
+        strcat(current_dir, "/");
+        strcat(current_dir, part);
+        char *ptr;
+        const char delim[] = " ";
+        while (1) {
+            printf("%s$ ", current_dir);
+            ptr = strtok(get_line(), delim);
+            remove_ending_symbol(ptr, '\n');
+            if (!strcmp(ptr, "ls")) {
+                dir_value_t *pDirValue = read_dir(pValue->active_cluster, pValue);
+                print_dir(pDirValue);
+            } else if (!strcmp(ptr, "cd")) {
+                char *arg = get_arg(ptr);
+                if (change_dir(pValue, arg)) {
+                    if (!strcmp(arg, "..")) {
+                        remove_until(current_dir, '/');
+                    } else if (!strcmp(".", arg)) {
+                        // do nothing
+                    } else {
+                        strcat(current_dir, "/");
+                        strcat(current_dir, arg);
+                    }
+                    printf("%s\n", arg);
+                } else {
+                    printf("Dir doesn't exist.\n");
+                }
+                free(arg);
+            } else if (!strcmp(ptr, "exit")) {
+                break;
+            } else if (!strcmp(ptr, "pwd")) {
+                printf("%s\n", current_dir);
+            } else if (!strcmp(ptr, "cp")) {
+                char *arg = get_arg(ptr);
+                dir_value_t *pDirValue = read_dir(pValue->active_cluster, pValue);
+                while (pDirValue != NULL) {
+                    if (pDirValue->type == 'd' && !strcmp(pDirValue->filename, arg)) {
+                        printf("Copying dir\n");
+                        break;
+                    } else if (!strcmp(pDirValue->filename, arg)) {
+                        printf("Copying file\n");
+                        break;
+                    }
+                    pDirValue = pDirValue->next;
+                }
+                free(arg);
+            } else {
+                printf("Unknown command\n");
+            }
+        }
+        close_partition(pValue);
+    } else {
+        printf("FAT32 not supported.\n");
+    }
 }
 
 int main(int argc, char **argv) {
-    run_second_mode();
+    run_second_mode("sdd1");
 
 //    run_mounts_mode();
 //    if (argc < 2) {
@@ -259,7 +330,8 @@ int run_mounts_mode() {
     }
     for (int i = 0; i < parts_counter; ++i) {
         printf("partition name: %s \npartition mm: %s\nfs type: %s\nfs ver: %s\n",
-               partitions[i].disk_name, partitions[i].major_minor_numbers, partitions[i].fs_type, partitions[i].fs_version);
+               partitions[i].disk_name, partitions[i].major_minor_numbers, partitions[i].fs_type,
+               partitions[i].fs_version);
     }
     return 0;
 }
