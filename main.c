@@ -2,6 +2,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include "fat32_lib.c"
 
 char *const SHELL_MODE = "shell";
@@ -86,6 +87,50 @@ void print_dir(dir_value_t *pValue) {
     }
 }
 
+void copy_file(partition_value_t *part, char *dest, dir_value_t *file) {
+    if (file->type != 'f') {
+        printf("Not a file\n");
+        return;
+    }
+    char *buf = malloc(part->cluster_size);
+    unsigned int fat_record = file->first_cluster;
+    int fd = open(dest, O_RDWR | O_APPEND | O_CREAT, 0777);
+    unsigned int size = file->size < part->cluster_size ? file->size : part->cluster_size;
+    while (fat_record < 0x0FFFFFF7) {
+        fat_record = read_file_cluster(part, fat_record, buf);
+        write(fd, buf, size);
+    }
+    free(buf);
+    close(fd);
+}
+
+void copy_dir(partition_value_t *part, char *dest, dir_value_t *file) {
+    if (file->type != 'd') {
+        printf("Not a dir\n");
+        return;
+    }
+    struct stat dir = {0};
+    if (stat(dest, &dir) == -1) {
+        mkdir(dest, 0777);
+    }
+    dir_value_t *dir_val = read_dir(file->first_cluster, part);
+    while (dir_val != NULL) {
+        if (strcmp(dir_val->filename, ".") && strcmp(dir_val->filename, "..")) {
+            char *path = calloc(1, 512);
+            strcat(path, dest);
+            strcat(path, "/");
+            strcat(path, dir_val->filename);
+            if (dir_val->type == 'd') {
+                copy_dir(part, path, dir_val);
+            } else {
+                copy_file(part, path, dir_val);
+            }
+            free(path);
+        }
+        dir_val = dir_val->next;
+    }
+}
+
 char *get_arg(char *ptr) {
     const char delim[] = " ";
     char *arg = calloc(1, 256);
@@ -100,7 +145,7 @@ char *get_arg(char *ptr) {
     return arg;
 }
 
-void run_second_mode(const char *part) {
+void run_shell_mode(const char *part, const char *extract_path) {
     partition_value_t *pValue = open_partition(part);
     if (pValue) {
         printf("FAT32 supported.\n");
@@ -140,11 +185,18 @@ void run_second_mode(const char *part) {
                 char *arg = get_arg(ptr);
                 dir_value_t *pDirValue = read_dir(pValue->active_cluster, pValue);
                 while (pDirValue != NULL) {
-                    if (pDirValue->type == 'd' && !strcmp(pDirValue->filename, arg)) {
-                        printf("Copying dir\n");
-                        break;
-                    } else if (!strcmp(pDirValue->filename, arg)) {
-                        printf("Copying file\n");
+                    if (!strcmp(pDirValue->filename, arg)) {
+                        char *filename = calloc(1, 512);
+                        strcpy(filename, extract_path);
+                        strcat(filename, pDirValue->filename);
+
+                        if (pDirValue->type == 'd') {
+                            copy_dir(pValue, filename, pDirValue);
+                        } else {
+                            copy_file(pValue, filename, pDirValue);
+                        }
+                        free(filename);
+                        printf("copied\n");
                         break;
                     }
                     pDirValue = pDirValue->next;
@@ -160,24 +212,37 @@ void run_second_mode(const char *part) {
     }
 }
 
-int main(int argc, char **argv) {
-    run_second_mode("sdd1");
+int check_directory(const char *path) {
+    DIR *dir = opendir(path);
+    if (dir) return 1;
+    else return 0;
+}
 
-//    run_mounts_mode();
-//    if (argc < 2) {
-//        printf("Please, specify program mode (shell/mounts)\n");
-//        return 0;
-//    } else {
-//        char *mode = argv[1];
-//        if (!strcmp(SHELL_MODE, mode)) {
-//            printf("Starting program in shell mode...\n");
-//        } else if (!strcmp(MOUNTS_LIST_MODE, mode)) {
-//            printf("Starting program in mounts mode...\n");
-//            return run_mounts_mode();
-//        }
-//    }
-//    printf("Unknown mode, terminating program!\n");
-    return -1;
+int main(int argc, char **argv) {
+    if (argc < 2) {
+        printf("Please, specify program mode (shell/mounts)\n");
+        return 0;
+    } else {
+        char *mode = argv[1];
+        if (!strcmp(SHELL_MODE, mode)) {
+            if (argc < 4) {
+                printf("You have to specify target device with FAT32 fs, and existing directory to copy files\n");
+                printf("usage: ./lab1 shell sda1 /home/gosha/fat32copy/");
+                return 0;
+            }
+            if (check_directory(argv[3])) {
+                run_shell_mode(argv[2], argv[3]);
+            } else {
+                printf("Directory doesn't exist.");
+                return 0;
+            }
+        } else if (!strcmp(MOUNTS_LIST_MODE, mode)) {
+            printf("Starting program in mounts mode...\n");
+            return run_mounts_mode();
+        }
+    }
+    printf("Unknown mode, terminating program!\n");
+    return 0;
 }
 
 void read_devices_properties(disk_info *device) {

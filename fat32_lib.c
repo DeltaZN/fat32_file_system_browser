@@ -99,8 +99,18 @@ get_fat_table_value(unsigned int active_cluster, unsigned int first_fat_sector, 
     return table_value;
 }
 
+unsigned int get_first_sector(partition_value_t *part, unsigned int cluster) {
+    return ((cluster - 2) * part->fat_boot->sectors_per_cluster) + part->first_data_sector;
+}
+
+unsigned int read_file_cluster(partition_value_t *part, unsigned int cluster, char *buf) {
+    unsigned int first_sector = get_first_sector(part, cluster);
+    pread(part->device_fd, buf, part->cluster_size, first_sector * part->fat_boot->bytes_per_sector);
+    return get_fat_table_value(cluster, part->fat_boot->reserved_sector_count, part->fat_boot->bytes_per_sector, part->device_fd);
+}
+
 dir_value_t *init_dir_value(dir_entry_t *entry, unsigned char *filename) {
-    dir_value_t *dir_val = malloc(sizeof(dir_value_t));
+    dir_value_t *dir_val = calloc(1, sizeof(dir_value_t));
     dir_val->filename = calloc(1, 256);
     strcpy(dir_val->filename, filename);
     dir_val->size = entry->file_size;
@@ -124,8 +134,7 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
     unsigned int sector_size = value->fat_boot->bytes_per_sector;
     unsigned int current_cluster = first_cluster;
     int fd = value->device_fd;
-    unsigned int first_sector =
-            ((current_cluster - 2) * value->fat_boot->sectors_per_cluster) + value->first_data_sector;
+    unsigned int first_sector = get_first_sector(value, current_cluster);
     dir_entry_t *buf = calloc(1, cluster_size);
     pread(fd, buf, cluster_size, first_sector * sector_size);
     dir_value_t *first_dir_value = NULL;
@@ -152,8 +161,7 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
             } else {
                 current_cluster = fat_record;
                 free(buf);
-                unsigned int current_sector =
-                        ((current_cluster - 2) * value->fat_boot->sectors_per_cluster) + value->first_data_sector;
+                unsigned int current_sector = get_first_sector(value, current_cluster);
                 buf = calloc(1, cluster_size);
                 j = 0;
                 pread(fd, buf, cluster_size, current_sector * sector_size);
