@@ -2,7 +2,7 @@
 #include <fcntl.h>
 
 typedef struct fat_BS {
-    unsigned char bootjmp[3];
+    unsigned char boot_jmp[3];
     unsigned char oem_name[8];
     unsigned short bytes_per_sector;
     unsigned char sectors_per_cluster;
@@ -59,7 +59,7 @@ typedef struct dir_entry {
     unsigned int file_size;
 }__attribute__((packed)) dir_entry_t;
 
-typedef struct long_fname {
+typedef struct long_filename {
     unsigned char order;
     unsigned char _2_byte_chars[10];
     unsigned char attribute;
@@ -68,7 +68,7 @@ typedef struct long_fname {
     unsigned char _2_byte_chars_next[12];
     unsigned short always_zero;
     unsigned char _2_byte_chars_last[4];
-}__attribute__((packed)) long_fname_t;
+}__attribute__((packed)) long_filename_t;
 
 typedef struct dir_value {
     unsigned char *filename;
@@ -112,7 +112,7 @@ unsigned int read_file_cluster(partition_value_t *part, unsigned int cluster, ch
 dir_value_t *init_dir_value(dir_entry_t *entry, unsigned char *filename) {
     dir_value_t *dir_val = calloc(1, sizeof(dir_value_t));
     dir_val->filename = calloc(1, 256);
-    strcpy(dir_val->filename, filename);
+    strcpy((char*)dir_val->filename, (char*)filename);
     dir_val->size = entry->file_size;
     dir_val->type = ((entry->attributes & 0x20) == 0x20) ? 'f' : 'd';
     dir_val->first_cluster = entry->high_cluster_num << 4;
@@ -125,8 +125,15 @@ dir_value_t *init_dir_value(dir_entry_t *entry, unsigned char *filename) {
 }
 
 void destroy_dir_value(dir_value_t *dir_val) {
-    free(dir_val->filename);
-    free(dir_val);
+    if (dir_val) {
+        free(dir_val->filename);
+        dir_value_t *next = dir_val;
+        while (next != NULL) {
+            dir_value_t *current = next;
+            next = current->next;
+            free(current);
+        }
+    }
 }
 
 dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
@@ -152,11 +159,8 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
             // cluster limit reached
             unsigned int fat_record = get_fat_table_value(current_cluster, value->fat_boot->reserved_sector_count,
                                                           sector_size, value->device_fd);
-            if (fat_record >= 0x0FFFFFF8) {
-                // chain end reached
-                end_dir_reached = 1;
-            } else if (fat_record == 0x0FFFFFF7) {
-                // bad cluster...
+            if (fat_record >= 0x0FFFFFF7) {
+                // chain end reached or bad cluster...
                 end_dir_reached = 1;
             } else {
                 current_cluster = fat_record;
@@ -175,29 +179,29 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
             // unused entry - skip
             continue;
         } else if (entry->attributes == 0x0F) {
-            long_fname_t *fname = (long_fname_t *) entry;
+            long_filename_t *filename = (long_filename_t *) entry;
             // maximum order value == 0x1F
-            int current_order = fname->order & 0x001F;
+            int current_order = filename->order & 0x001F;
             order[current_order] = calloc(1, 13);
             order_bitmap[current_order] = 1;
             char *current_buf = order[current_order];
             int buf_offset = 0;
             for (int i = 0; i < 10; i += 2) {
-                current_buf[buf_offset++] = fname->_2_byte_chars[i];
+                current_buf[buf_offset++] = (char)filename->_2_byte_chars[i];
             }
             for (int i = 0; i < 12; i += 2) {
-                current_buf[buf_offset++] = fname->_2_byte_chars_next[i];
+                current_buf[buf_offset++] = (char)filename->_2_byte_chars_next[i];
             }
             for (int i = 0; i < 4; i += 2) {
-                current_buf[buf_offset++] = fname->_2_byte_chars_last[i];
+                current_buf[buf_offset++] = (char)filename->_2_byte_chars_last[i];
             }
             long_name_counter++;
         } else if ((entry->attributes & 0x10) == 0x10 || (entry->attributes & 0x20) == 0x20) {
             if (!long_name_counter) {
                 char tmp_name[9];
                 char tmp_ext[4];
-                strncpy(tmp_name, entry->file_name, 8);
-                strncpy(tmp_ext, entry->extension, 3);
+                strncpy(tmp_name, (char*)entry->file_name, 8);
+                strncpy(tmp_ext, (char*)entry->extension, 3);
                 for (int i = 7; i >= 0; --i) {
                     if (tmp_name[i] == 32) {
                         tmp_name[i] = 0;
@@ -220,7 +224,7 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
                     strcat(filename, tmp_ext);
                 }
 
-                current_dir_value = init_dir_value(entry, filename);
+                current_dir_value = init_dir_value(entry, (unsigned char*)filename);
 
                 if (first_dir_value == NULL)
                     first_dir_value = current_dir_value;
@@ -231,7 +235,7 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
                 unsigned char *tmp_str = calloc(1, long_name_counter * 13);
                 for (int i = 0; i < 32; ++i) {
                     if (order_bitmap[i] == 1) {
-                        strcat(tmp_str, order[i]);
+                        strcat((char*)tmp_str, order[i]);
                         order_bitmap[i] = 0;
                         free(order[i]);
                     }
@@ -254,15 +258,17 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
     return first_dir_value;
 }
 
-int change_dir(partition_value_t *value, const unsigned char *dir) {
-    dir_value_t *pValue = read_dir(value->active_cluster, value);
-    while (pValue != NULL) {
-        if (pValue->type == 'd' && strcmp(dir, pValue->filename) == 0) {
-            value->active_cluster = pValue->first_cluster;
+int change_dir(partition_value_t *value, const unsigned char *dir_name) {
+    dir_value_t *dir_val = read_dir(value->active_cluster, value);
+    while (dir_val != NULL) {
+        if (dir_val->type == 'd' && strcmp((char*)dir_name, (char*)dir_val->filename) == 0) {
+            value->active_cluster = dir_val->first_cluster;
+            destroy_dir_value(dir_val);
             return 1;
         }
-        pValue = pValue->next;
+        dir_val = dir_val->next;
     }
+    destroy_dir_value(dir_val);
     return 0;
 }
 
