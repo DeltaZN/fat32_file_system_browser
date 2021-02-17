@@ -7,7 +7,7 @@ struct disk_info {
     char major_minor_numbers[32];
     char fs_type[32];
     char fs_version[32];
-} disk_info;
+};
 
 void read_devices_properties(struct disk_info *device) {
     char const *FS_TYPE_PROPERTY = "E:ID_FS_TYPE";
@@ -74,8 +74,8 @@ void add_disk_partition_info(struct disk_info *info, struct dirent *sys_block_ch
 int run_mounts_mode() {
     const int MAX_DISKS = 256;
     const char *sys_block_path = "/sys/block/";
-    struct disk_info *disks = (struct disk_info *) malloc(MAX_DISKS * sizeof(disk_info));
-    struct disk_info *partitions = (struct disk_info *) malloc(MAX_DISKS * sizeof(disk_info));
+    struct disk_info *disks = (struct disk_info *) malloc(MAX_DISKS * sizeof(struct disk_info));
+    struct disk_info *partitions = (struct disk_info *) malloc(MAX_DISKS * sizeof(struct disk_info));
 
     DIR *sys_block_dir = opendir(sys_block_path);
     DIR *sys_block_disk_dir;
