@@ -2,14 +2,14 @@
 // Created by gosha on 15.02.2021.
 //
 
-typedef struct {
+struct disk_info {
     char disk_name[256];
     char major_minor_numbers[32];
     char fs_type[32];
     char fs_version[32];
 } disk_info;
 
-void read_devices_properties(disk_info *device) {
+void read_devices_properties(struct disk_info *device) {
     char const *FS_TYPE_PROPERTY = "E:ID_FS_TYPE";
     char const *FS_VERSION_PROPERTY = "E:ID_FS_VERSION";
 
@@ -46,7 +46,7 @@ void read_devices_properties(disk_info *device) {
         free(line);
 }
 
-void add_disk_partition_info(disk_info *info, struct dirent *sys_block_child, const char* disk_dir_name) {
+void add_disk_partition_info(struct disk_info *info, struct dirent *sys_block_child, const char* disk_dir_name) {
     char disk_dev_file_name[256] = {0};
     strcpy(disk_dev_file_name, disk_dir_name);
     strcat(disk_dev_file_name, "/dev");
@@ -74,8 +74,8 @@ void add_disk_partition_info(disk_info *info, struct dirent *sys_block_child, co
 int run_mounts_mode() {
     const int MAX_DISKS = 256;
     const char *sys_block_path = "/sys/block/";
-    disk_info *disks = (disk_info *) malloc(MAX_DISKS * sizeof(disk_info));
-    disk_info *partitions = (disk_info *) malloc(MAX_DISKS * sizeof(disk_info));
+    struct disk_info *disks = (struct disk_info *) malloc(MAX_DISKS * sizeof(disk_info));
+    struct disk_info *partitions = (struct disk_info *) malloc(MAX_DISKS * sizeof(disk_info));
 
     DIR *sys_block_dir = opendir(sys_block_path);
     DIR *sys_block_disk_dir;

@@ -1,7 +1,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-typedef struct fat_BS {
+struct fat_BS {
     unsigned char boot_jmp[3];
     unsigned char oem_name[8];
     unsigned short bytes_per_sector;
@@ -31,9 +31,9 @@ typedef struct fat_BS {
     unsigned char volume_label[11];
     unsigned char fat_type_label[8];
 
-}__attribute__((packed)) fat_BS_t;
+}__attribute__((packed));
 
-typedef struct fs_info {
+struct fs_info {
     unsigned int lead_signature;
     unsigned char reserved_0[480];
     unsigned int another_signature;
@@ -41,9 +41,9 @@ typedef struct fs_info {
     unsigned int available;
     unsigned char reserved_1[12];
     unsigned int tail_signature;
-}__attribute__((packed)) fs_info_t;
+}__attribute__((packed));
 
-typedef struct dir_entry {
+struct dir_entry {
     unsigned char file_name[8];
     unsigned char extension[3];
     unsigned char attributes;
@@ -57,9 +57,9 @@ typedef struct dir_entry {
     unsigned short last_mod_date;
     unsigned short low_cluster_num;
     unsigned int file_size;
-}__attribute__((packed)) dir_entry_t;
+}__attribute__((packed));
 
-typedef struct long_filename {
+struct long_filename {
     unsigned char order;
     unsigned char _2_byte_chars[10];
     unsigned char attribute;
@@ -68,24 +68,24 @@ typedef struct long_filename {
     unsigned char _2_byte_chars_next[12];
     unsigned short always_zero;
     unsigned char _2_byte_chars_last[4];
-}__attribute__((packed)) long_filename_t;
+}__attribute__((packed));
 
-typedef struct dir_value {
+struct dir_value {
     unsigned char *filename;
     unsigned char type;
     unsigned int first_cluster;
     unsigned int size;
     void *next;
-}__attribute__((packed)) dir_value_t;
+}__attribute__((packed));
 
-typedef struct partition_value {
+struct partition_value {
     int device_fd;
     unsigned int cluster_size;
     unsigned int first_data_sector;
     unsigned int active_cluster;
-    fat_BS_t *fat_boot;
-    fs_info_t *fs_info;
-}__attribute__((packed)) partition_value_t;
+    struct fat_BS *fat_boot;
+    struct fs_info *fs_info;
+}__attribute__((packed));
 
 unsigned int
 get_fat_table_value(unsigned int active_cluster, unsigned int first_fat_sector, unsigned int sector_size, int fd) {
@@ -99,18 +99,18 @@ get_fat_table_value(unsigned int active_cluster, unsigned int first_fat_sector, 
     return table_value;
 }
 
-unsigned int get_first_sector(partition_value_t *part, unsigned int cluster) {
+unsigned int get_first_sector(struct partition_value *part, unsigned int cluster) {
     return ((cluster - 2) * part->fat_boot->sectors_per_cluster) + part->first_data_sector;
 }
 
-unsigned int read_file_cluster(partition_value_t *part, unsigned int cluster, char *buf) {
+unsigned int read_file_cluster(struct partition_value *part, unsigned int cluster, char *buf) {
     unsigned int first_sector = get_first_sector(part, cluster);
     pread(part->device_fd, buf, part->cluster_size, first_sector * part->fat_boot->bytes_per_sector);
     return get_fat_table_value(cluster, part->fat_boot->reserved_sector_count, part->fat_boot->bytes_per_sector, part->device_fd);
 }
 
-dir_value_t *init_dir_value(dir_entry_t *entry, unsigned char *filename) {
-    dir_value_t *dir_val = calloc(1, sizeof(dir_value_t));
+struct dir_value *init_dir_value(struct dir_entry *entry, unsigned char *filename) {
+    struct dir_value *dir_val = calloc(1, sizeof(struct dir_value));
     dir_val->filename = calloc(1, 256);
     strcpy((char*)dir_val->filename, (char*)filename);
     dir_val->size = entry->file_size;
@@ -124,29 +124,29 @@ dir_value_t *init_dir_value(dir_entry_t *entry, unsigned char *filename) {
     return dir_val;
 }
 
-void destroy_dir_value(dir_value_t *dir_val) {
+void destroy_dir_value(struct dir_value *dir_val) {
     if (dir_val) {
         free(dir_val->filename);
-        dir_value_t *next = dir_val;
+        struct dir_value *next = dir_val;
         while (next != NULL) {
-            dir_value_t *current = next;
+            struct dir_value *current = next;
             next = current->next;
             free(current);
         }
     }
 }
 
-dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
+struct dir_value *read_dir(unsigned int first_cluster, struct partition_value *value) {
     unsigned int cluster_size = value->cluster_size;
     unsigned int sector_size = value->fat_boot->bytes_per_sector;
     unsigned int current_cluster = first_cluster;
     int fd = value->device_fd;
     unsigned int first_sector = get_first_sector(value, current_cluster);
-    dir_entry_t *buf = calloc(1, cluster_size);
+    struct dir_entry *buf = calloc(1, cluster_size);
     pread(fd, buf, cluster_size, first_sector * sector_size);
-    dir_value_t *first_dir_value = NULL;
-    dir_value_t *prev_dir_value = NULL;
-    dir_value_t *current_dir_value = NULL;
+    struct dir_value *first_dir_value = NULL;
+    struct dir_value *prev_dir_value = NULL;
+    struct dir_value *current_dir_value = NULL;
 
     char *order_bitmap = calloc(1, 32);
     char *order[32];
@@ -154,8 +154,8 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
     char end_dir_reached = 0;
     int j = 0;
     while (!end_dir_reached) {
-        dir_entry_t *entry = &buf[j++];
-        if ((cluster_size / sizeof(dir_entry_t)) <= (j)) {
+        struct dir_entry *entry = &buf[j++];
+        if ((cluster_size / sizeof(struct dir_entry)) <= (j)) {
             // cluster limit reached
             unsigned int fat_record = get_fat_table_value(current_cluster, value->fat_boot->reserved_sector_count,
                                                           sector_size, value->device_fd);
@@ -179,7 +179,7 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
             // unused entry - skip
             continue;
         } else if (entry->attributes == 0x0F) {
-            long_filename_t *filename = (long_filename_t *) entry;
+            struct long_filename *filename = (struct long_filename *) entry;
             // maximum order value == 0x1F
             int current_order = filename->order & 0x001F;
             order[current_order] = calloc(1, 13);
@@ -258,8 +258,8 @@ dir_value_t *read_dir(unsigned int first_cluster, partition_value_t *value) {
     return first_dir_value;
 }
 
-int change_dir(partition_value_t *value, const unsigned char *dir_name) {
-    dir_value_t *dir_val = read_dir(value->active_cluster, value);
+int change_dir(struct partition_value *value, const unsigned char *dir_name) {
+    struct dir_value *dir_val = read_dir(value->active_cluster, value);
     while (dir_val != NULL) {
         if (dir_val->type == 'd' && strcmp((char*)dir_name, (char*)dir_val->filename) == 0) {
             value->active_cluster = dir_val->first_cluster;
@@ -272,14 +272,14 @@ int change_dir(partition_value_t *value, const unsigned char *dir_name) {
     return 0;
 }
 
-partition_value_t *open_partition(const char *partition) {
+struct partition_value *open_partition(const char *partition) {
     char dev[256] = "/dev/";
     strcat(dev, partition);
     int fd = open(dev, O_RDONLY, 00666);
-    fat_BS_t *fat_boot;
+    struct fat_BS *fat_boot;
     if (fd != -1) {
-        fat_boot = malloc(sizeof(fat_BS_t));
-        pread(fd, fat_boot, sizeof(fat_BS_t), 0);
+        fat_boot = malloc(sizeof(struct fat_BS));
+        pread(fd, fat_boot, sizeof(struct fat_BS), 0);
         unsigned int total_sectors = fat_boot->total_sectors_32;
         unsigned int fat_size = (fat_boot->table_size_16 == 0) ? fat_boot->table_size_32 : fat_boot->table_size_16;
         unsigned int root_dir_sectors =
@@ -291,8 +291,8 @@ partition_value_t *open_partition(const char *partition) {
                                      root_dir_sectors);
         unsigned int total_clusters = data_sectors / fat_boot->sectors_per_cluster;
 
-        fs_info_t *fs = malloc(sizeof(fs_info_t));
-        pread(fd, fs, sizeof(fs_info_t), fat_boot->fat_info * fat_boot->bytes_per_sector);
+        struct fs_info *fs = malloc(sizeof(struct fs_info));
+        pread(fd, fs, sizeof(struct fs_info), fat_boot->fat_info * fat_boot->bytes_per_sector);
 
         if (total_clusters >= 65525 && total_clusters < 268435445
             && fs->lead_signature == 0x41615252
@@ -306,7 +306,7 @@ partition_value_t *open_partition(const char *partition) {
 
         unsigned int cluster_size = fat_boot->bytes_per_sector * fat_boot->sectors_per_cluster;
 
-        partition_value_t *part = malloc(sizeof(partition_value_t));
+        struct partition_value *part = malloc(sizeof(struct partition_value));
         part->cluster_size = cluster_size;
         part->device_fd = fd;
         part->fat_boot = fat_boot;
@@ -319,7 +319,7 @@ partition_value_t *open_partition(const char *partition) {
     return NULL;
 }
 
-void close_partition(partition_value_t *part) {
+void close_partition(struct partition_value *part) {
     free(part->fat_boot);
     free(part->fs_info);
     close(part->device_fd);

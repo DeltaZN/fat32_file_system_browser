@@ -1,5 +1,5 @@
 
-void print_dir(dir_value_t *pValue) {
+void print_dir(struct dir_value *pValue) {
     while (pValue != NULL) {
         if (pValue->type == 'd') {
             printf("DIR %s %d\n", pValue->filename, pValue->first_cluster);
@@ -10,7 +10,7 @@ void print_dir(dir_value_t *pValue) {
     }
 }
 
-void copy_file(partition_value_t *part, char *dest, dir_value_t *file) {
+void copy_file(struct partition_value *part, char *dest, struct dir_value *file) {
     if (file->type != 'f') {
         printf("Not a file\n");
         return;
@@ -27,7 +27,7 @@ void copy_file(partition_value_t *part, char *dest, dir_value_t *file) {
     close(fd);
 }
 
-void copy_dir(partition_value_t *part, char *dest, dir_value_t *file) {
+void copy_dir(struct partition_value *part, char *dest, struct dir_value *file) {
     if (file->type != 'd') {
         printf("Not a dir\n");
         return;
@@ -36,7 +36,7 @@ void copy_dir(partition_value_t *part, char *dest, dir_value_t *file) {
     if (stat(dest, &dir) == -1) {
         mkdir(dest, 0777);
     }
-    dir_value_t *dir_val = read_dir(file->first_cluster, part);
+    struct dir_value *dir_val = read_dir(file->first_cluster, part);
     while (dir_val != NULL) {
         if (strcmp((char*)dir_val->filename, ".") != 0 && strcmp((char*)dir_val->filename, "..") != 0) {
             char *path = calloc(1, 512);
@@ -78,7 +78,7 @@ void print_help() {
 }
 
 void run_shell_mode(const char *part, const char *extract_path) {
-    partition_value_t *partition = open_partition(part);
+    struct partition_value *partition = open_partition(part);
     if (partition) {
         printf("FAT32 supported.\n");
         char *current_dir = calloc(1, 512);
@@ -92,7 +92,7 @@ void run_shell_mode(const char *part, const char *extract_path) {
             ptr = strtok(get_line(), delim);
             remove_ending_symbol(ptr, '\n');
             if (!strcmp(ptr, "ls")) {
-                dir_value_t *dir_value = read_dir(partition->active_cluster, partition);
+                struct dir_value *dir_value = read_dir(partition->active_cluster, partition);
                 print_dir(dir_value);
                 destroy_dir_value(dir_value);
             } else if (!strcmp(ptr, "cd")) {
@@ -117,7 +117,7 @@ void run_shell_mode(const char *part, const char *extract_path) {
                 printf("%s\n", current_dir);
             } else if (!strcmp(ptr, "cp")) {
                 char *arg = get_arg(ptr);
-                dir_value_t *dir_value = read_dir(partition->active_cluster, partition);
+                struct dir_value *dir_value = read_dir(partition->active_cluster, partition);
                 while (dir_value != NULL) {
                     if (!strcmp((char*)dir_value->filename, arg)) {
                         char *filename = calloc(1, 512);
