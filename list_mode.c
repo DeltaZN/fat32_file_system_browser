@@ -53,7 +53,7 @@ void add_disk_partition_info(struct disk_info *info, struct dirent *sys_block_ch
 
     FILE *disk_dev_file = fopen(disk_dev_file_name, "rb");
     char *buffer = 0;
-    long length;
+    size_t length;
 
     if (disk_dev_file) {
         fseek(disk_dev_file, 0, SEEK_END);

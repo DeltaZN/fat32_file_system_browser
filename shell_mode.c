@@ -54,20 +54,6 @@ void copy_dir(struct partition_value *part, char *dest, struct dir_value *file) 
     destroy_dir_value(dir_val);
 }
 
-char *get_arg(char *ptr) {
-    const char delim[] = " ";
-    char *arg = calloc(1, 256);
-    ptr = strtok(NULL, delim);
-
-    while (ptr != NULL) {
-        strcat(arg, ptr);
-        ptr = strtok(NULL, delim);
-        strcat(arg, " ");
-    }
-    remove_ending_symbol(arg, '\n');
-    return arg;
-}
-
 void print_help() {
     printf("cd [arg] - change working directory\n");
     printf("pwd - print working directory full name\n");
@@ -77,71 +63,87 @@ void print_help() {
     printf("help - print help\n");
 }
 
-void run_shell_mode(const char *part, const char *extract_path) {
+void run_shell_mode(const char *part) {
     struct partition_value *partition = open_partition(part);
     if (partition) {
         printf("FAT32 supported.\n");
         char *current_dir = calloc(1, 512);
         strcat(current_dir, "/");
         strcat(current_dir, part);
-        char *ptr;
-        const char delim[] = " ";
+        char *line;
         int exit = 0;
         while (!exit) {
+            char *args[3];
+            args[0] = calloc(1, 256);
+            args[1] = calloc(1, 256);
+            args[2] = calloc(1, 256);
             printf("%s$ ", current_dir);
-            ptr = strtok(get_line(), delim);
-            remove_ending_symbol(ptr, '\n');
-            if (!strcmp(ptr, "ls")) {
+            line = get_line();
+            remove_ending_symbol(line, '\n');
+            parse(line, args);
+            if (!strcmp(args[0], "ls")) {
                 struct dir_value *dir_value = read_dir(partition->active_cluster, partition);
                 print_dir(dir_value);
                 destroy_dir_value(dir_value);
-            } else if (!strcmp(ptr, "cd")) {
-                char *arg = get_arg(ptr);
-                if (change_dir(partition, (unsigned char*)arg)) {
-                    if (!strcmp(arg, "..")) {
+            } else if (!strcmp(args[0], "cd")) {
+                if (change_dir(partition, (unsigned char*)args[1])) {
+                    if (!strcmp(args[1], "..")) {
                         remove_until(current_dir, '/');
-                    } else if (!strcmp(".", arg)) {
+                    } else if (!strcmp(".", args[1])) {
                         // do nothing
                     } else {
                         strcat(current_dir, "/");
-                        strcat(current_dir, arg);
+                        strcat(current_dir, args[1]);
                     }
-                    printf("%s\n", arg);
+                    printf("%s\n", args[1]);
                 } else {
                     printf("Dir doesn't exist.\n");
                 }
-                free(arg);
-            } else if (!strcmp(ptr, "exit")) {
+            } else if (!strcmp(args[0], "exit")) {
                 exit = 1;
-            } else if (!strcmp(ptr, "pwd")) {
+            } else if (!strcmp(args[0], "pwd")) {
                 printf("%s\n", current_dir);
-            } else if (!strcmp(ptr, "cp")) {
-                char *arg = get_arg(ptr);
+            } else if (!strcmp(args[0], "cp")) {
                 struct dir_value *dir_value = read_dir(partition->active_cluster, partition);
+                char copied = 0;
                 while (dir_value != NULL) {
-                    if (!strcmp((char*)dir_value->filename, arg)) {
-                        char *filename = calloc(1, 512);
-                        strcpy(filename, extract_path);
-                        strcat(filename, (char*)dir_value->filename);
+                    if (!strcmp((char*)dir_value->filename, args[1])) {
+                        if (check_directory(args[2])) {
+                            char filename[256] = {0};
+                            strcpy(filename, args[2]);
+                            size_t str_len = strlen(args[2]);
+                            if (filename[str_len - 1] != '/') {
+                                strcat(filename, "/");
+                            }
+                            strcat(filename, (char *) dir_value->filename);
 
-                        if (dir_value->type == 'd') {
-                            copy_dir(partition, filename, dir_value);
+                            if (dir_value->type == 'd') {
+                                copy_dir(partition, filename, dir_value);
+                            } else {
+                                copy_file(partition, filename, dir_value);
+                            }
+                            copied = 1;
+                            break;
                         } else {
-                            copy_file(partition, filename, dir_value);
+                            printf("Directory doesn't exists\n");
                         }
-                        free(filename);
-                        printf("copied\n");
-                        break;
                     }
                     dir_value = dir_value->next;
                 }
+                if (copied) {
+                    printf("copied\n");
+                } else {
+                    printf("Dir/file not found\n");
+                }
                 destroy_dir_value(dir_value);
-                free(arg);
-            } else if (!strcmp(ptr, "help")) {
+            } else if (!strcmp(args[0], "help")) {
                 print_help();
             } else {
                 printf("Unknown command\n");
             }
+            free(args[0]);
+            free(args[1]);
+            free(args[2]);
         }
         close_partition(partition);
     } else {
