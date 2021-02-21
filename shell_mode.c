@@ -16,9 +16,9 @@ void copy_file(struct partition_value *part, char *dest, struct dir_value *file)
         return;
     }
     char *buf = malloc(part->cluster_size);
-    unsigned int fat_record = file->first_cluster;
+    u_int32_t fat_record = file->first_cluster;
     int fd = open(dest, O_RDWR | O_APPEND | O_CREAT, 0777);
-    unsigned int size = file->size < part->cluster_size ? file->size : part->cluster_size;
+    u_int32_t size = file->size < part->cluster_size ? file->size : part->cluster_size;
     while (fat_record < 0x0FFFFFF7) {
         fat_record = read_file_cluster(part, fat_record, buf);
         write(fd, buf, size);
@@ -86,7 +86,7 @@ void run_shell_mode(const char *part) {
                 print_dir(dir_value);
                 destroy_dir_value(dir_value);
             } else if (!strcmp(args[0], "cd")) {
-                if (change_dir(partition, (unsigned char*)args[1])) {
+                if (change_dir(partition, (u_char*)args[1])) {
                     if (!strcmp(args[1], "..")) {
                         remove_until(current_dir, '/');
                     } else if (!strcmp(".", args[1])) {

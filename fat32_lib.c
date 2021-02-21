@@ -30,7 +30,6 @@ struct fat_BS {
     u_int32_t volume_id;
     u_char volume_label[11];
     u_char fat_type_label[8];
-
 }__attribute__((packed));
 
 struct fs_info {
