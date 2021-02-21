@@ -114,8 +114,8 @@ void remove_ending_symbol(char *str, char sym) {
 }
 
 void remove_until(char *str, char sym) {
-    int len = strlen(str);
-    for (int i = len; i >= 0; i--) {
+    size_t len = strlen(str);
+    for (size_t i = len; i >= 0; i--) {
         if (str[i] != sym)
             str[i] = 0;
         else {

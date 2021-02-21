@@ -19,7 +19,7 @@ void read_devices_properties(struct disk_info *device) {
     FILE *fp;
     char *line = NULL;
     size_t len = 0;
-    ssize_t read;
+    size_t read;
 
     fp = fopen(udev_data_file_name, "rb");
     if (fp == NULL)
@@ -29,12 +29,12 @@ void read_devices_properties(struct disk_info *device) {
 
     while ((read = getline(&line, &len, fp)) != -1) {
         if (startsWith(line, FS_TYPE_PROPERTY)) {
-            int property_len = (int)strlen(FS_TYPE_PROPERTY) + 1;
+            size_t property_len = strlen(FS_TYPE_PROPERTY) + 1;
             strncpy(property_value, &line[property_len], read - property_len);
             remove_ending_symbol(property_value, '\n');
             strcpy(device->fs_type, property_value);
         } else if (startsWith(line, FS_VERSION_PROPERTY)) {
-            int property_len = (int)strlen(FS_VERSION_PROPERTY) + 1;
+            size_t property_len = strlen(FS_VERSION_PROPERTY) + 1;
             strncpy(property_value, &line[property_len], read - property_len);
             remove_ending_symbol(property_value, '\n');
             strcpy(device->fs_version, property_value);
@@ -71,8 +71,8 @@ void add_disk_partition_info(struct disk_info *info, struct dirent *sys_block_ch
     free(buffer);
 }
 
-int run_mounts_mode() {
-    const int MAX_DISKS = 256;
+int run_list_mode() {
+    const int32_t MAX_DISKS = 256;
     const char *sys_block_path = "/sys/block/";
     struct disk_info *disks = (struct disk_info *) malloc(MAX_DISKS * sizeof(struct disk_info));
     struct disk_info *partitions = (struct disk_info *) malloc(MAX_DISKS * sizeof(struct disk_info));
@@ -81,8 +81,8 @@ int run_mounts_mode() {
     DIR *sys_block_disk_dir;
     struct dirent *sys_block_child;
     struct dirent *sys_block_disk_child;
-    int disks_counter = 0;
-    int parts_counter = 0;
+    int32_t disks_counter = 0;
+    int32_t parts_counter = 0;
     if (sys_block_dir) {
         while ((sys_block_child = readdir(sys_block_dir)) != NULL) {
             if (startsWith(sys_block_child->d_name, "sd")) {

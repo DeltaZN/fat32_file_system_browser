@@ -10,11 +10,11 @@
 #include "shell_mode.c"
 
 char *const SHELL_MODE = "shell";
-char *const MOUNTS_LIST_MODE = "list";
+char *const LIST_MODE = "list";
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        printf("Please, specify program mode (shell/mounts)\n");
+        printf("Please, specify program mode (%s/%s)\n", SHELL_MODE, LIST_MODE);
         return 0;
     } else {
         char *mode = argv[1];
@@ -26,9 +26,9 @@ int main(int argc, char **argv) {
             }
             printf("Starting program in shell mode...\n");
             run_shell_mode(argv[2]);
-        } else if (!strcmp(MOUNTS_LIST_MODE, mode)) {
+        } else if (!strcmp(LIST_MODE, mode)) {
             printf("Starting program in mounts mode...\n");
-            return run_mounts_mode();
+            return run_list_mode();
         } else {
             printf("Unknown mode, terminating program!\n");
         }
