@@ -1,4 +1,3 @@
-
 void print_dir(struct dir_value *pValue) {
     while (pValue != NULL) {
         if (pValue->type == 'd') {

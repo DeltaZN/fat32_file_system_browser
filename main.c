@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <argp.h>
+#include "unistd.h"
 #include "fat32_lib.c"
 #include "utils.c"
 #include "list_mode.c"
@@ -28,7 +29,7 @@ int main(int argc, char **argv) {
             run_shell_mode(argv[2]);
         } else if (!strcmp(LIST_MODE, mode)) {
             printf("Starting program in mounts mode...\n");
-            return run_list_mode();
+            run_list_mode();
         } else {
             printf("Unknown mode, terminating program!\n");
         }

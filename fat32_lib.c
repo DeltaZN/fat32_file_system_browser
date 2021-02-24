@@ -1,4 +1,4 @@
-#include <unistd.h>
+#include <string.h>
 #include <fcntl.h>
 
 struct fat_BS {

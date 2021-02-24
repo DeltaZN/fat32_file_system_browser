@@ -71,7 +71,7 @@ void add_disk_partition_info(struct disk_info *info, struct dirent *sys_block_ch
     free(buffer);
 }
 
-int run_list_mode() {
+void run_list_mode() {
     const int32_t MAX_DISKS = 256;
     const char *sys_block_path = "/sys/block/";
     struct disk_info *disks = (struct disk_info *) malloc(MAX_DISKS * sizeof(struct disk_info));
@@ -114,5 +114,4 @@ int run_list_mode() {
         printf("partition name: %s (%s %s)\n",
                partitions[i].disk_name, partitions[i].fs_type, partitions[i].fs_version);
     }
-    return 0;
 }
